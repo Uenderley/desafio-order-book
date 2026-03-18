@@ -5,9 +5,11 @@ import com.orderbook.entity.OrderSide;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
 public class MatchingEngine {
@@ -20,7 +22,13 @@ public class MatchingEngine {
 
     private final ReentrantLock lock = new ReentrantLock();
 
+    private volatile boolean accepting = true;
+    private volatile boolean ready = false;
+
     public MatchResult submitOrder(Order incoming) {
+        if (!accepting) {
+            throw new IllegalStateException("Matching engine nao esta aceitando novas ordens");
+        }
         lock.lock();
         try {
             List<TradeResult> trades = tryMatch(incoming);
@@ -82,6 +90,80 @@ public class MatchingEngine {
         try {
             bids.clear();
             asks.clear();
+            accepting = true;
+            ready = false;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public boolean isAccepting() {
+        return accepting;
+    }
+
+    public void stopAcceptingOrders() {
+        accepting = false;
+    }
+
+    public boolean isReady() {
+        return ready;
+    }
+
+    public void setReady(boolean ready) {
+        this.ready = ready;
+    }
+
+    public boolean isResponding() {
+        try {
+            if (lock.tryLock(100, TimeUnit.MILLISECONDS)) {
+                lock.unlock();
+                return true;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return false;
+    }
+
+    public void drainInFlightOperations(Duration timeout) {
+        try {
+            if (lock.tryLock(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                lock.unlock();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public List<TradeResult> runRecoveryMatching() {
+        lock.lock();
+        try {
+            List<TradeResult> allTrades = new ArrayList<>();
+
+            // Percorre bids do maior preco para o menor
+            // Para cada bid, tenta casar com asks
+            while (!bids.isEmpty() && !asks.isEmpty()) {
+                Map.Entry<PriceTimeKey, Order> bestBid = bids.firstEntry();
+                Map.Entry<PriceTimeKey, Order> bestAsk = asks.firstEntry();
+
+                if (!isMatchable(bestBid.getValue(), bestAsk.getValue())) {
+                    break;
+                }
+
+                // Remove do book e faz matching via submitOrder
+                Order bid = bestBid.getValue();
+                bids.pollFirstEntry();
+
+                // Reset remaining para resubmeter
+                List<TradeResult> trades = tryMatch(bid);
+                allTrades.addAll(trades);
+
+                if (bid.remaining.compareTo(BigDecimal.ZERO) > 0) {
+                    insertIntoBook(bid);
+                }
+            }
+
+            return allTrades;
         } finally {
             lock.unlock();
         }
