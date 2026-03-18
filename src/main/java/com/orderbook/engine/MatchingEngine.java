@@ -77,6 +77,16 @@ public class MatchingEngine {
         return bids.size() + asks.size();
     }
 
+    public void clear() {
+        lock.lock();
+        try {
+            bids.clear();
+            asks.clear();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private List<TradeResult> tryMatch(Order incoming) {
         List<TradeResult> trades = new ArrayList<>();
 
@@ -97,10 +107,10 @@ public class MatchingEngine {
             incoming.remaining = incoming.remaining.subtract(matchQty);
             resting.remaining = resting.remaining.subtract(matchQty);
 
-            UUID buyOrderId = incoming.side == OrderSide.BUY ? incoming.id : resting.id;
-            UUID sellOrderId = incoming.side == OrderSide.SELL ? incoming.id : resting.id;
+            Order buyOrder = incoming.side == OrderSide.BUY ? incoming : resting;
+            Order sellOrder = incoming.side == OrderSide.SELL ? incoming : resting;
 
-            trades.add(new TradeResult(buyOrderId, sellOrderId, matchPrice, matchQty));
+            trades.add(new TradeResult(buyOrder.id, sellOrder.id, buyOrder, sellOrder, matchPrice, matchQty));
 
             if (resting.remaining.compareTo(BigDecimal.ZERO) == 0) {
                 oppositeBook.pollFirstEntry();
