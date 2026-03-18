@@ -1,5 +1,30 @@
 # Plano de Construcao — Order Book de Vibranium
 
+## Metodologia: TDD (Test-Driven Development)
+
+**MANDATORIO:** Todo desenvolvimento segue o ciclo TDD rigoroso:
+
+```
+RED   →  Escrever o teste ANTES do codigo de producao (teste falha)
+GREEN →  Implementar o MINIMO necessario para o teste passar
+REFACTOR → Refatorar mantendo todos os testes verdes
+```
+
+**Regras:**
+1. **Nenhum codigo de producao e escrito sem um teste que falhe primeiro**
+2. Escrever apenas o teste suficiente para falhar (nao mais)
+3. Escrever apenas o codigo suficiente para o teste passar (nao mais)
+4. Refatorar somente com todos os testes verdes
+5. Cada etapa comeca pela escrita dos testes que validam os criterios de aceite
+
+**Na pratica, para cada etapa:**
+- Primeiro: criar os testes (unitarios e/ou integracao) que definem o comportamento esperado
+- Segundo: rodar os testes e confirmar que falham (RED)
+- Terceiro: implementar o codigo para fazer os testes passarem (GREEN)
+- Quarto: refatorar se necessario, mantendo testes verdes (REFACTOR)
+
+---
+
 ## Visao Geral das Etapas
 
 O projeto sera construido em **10 etapas incrementais**, cada uma entregando valor testavel.
