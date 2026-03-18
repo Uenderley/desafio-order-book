@@ -7,9 +7,14 @@ services:
       POSTGRES_USER: orderbook
       POSTGRES_PASSWORD: orderbook
     ports:
-      - "5432:5432"
+      - "2345:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orderbook -d orderbook"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
