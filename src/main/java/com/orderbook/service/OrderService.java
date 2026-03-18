@@ -1,5 +1,8 @@
 package com.orderbook.service;
 
+import com.orderbook.engine.MatchResult;
+import com.orderbook.engine.MatchingEngine;
+import com.orderbook.engine.TradeResult;
 import com.orderbook.entity.*;
 import com.orderbook.exception.OrderNotFoundException;
 import com.orderbook.repository.OrderRepository;
@@ -23,6 +26,12 @@ public class OrderService {
     @Inject
     WalletService walletService;
 
+    @Inject
+    MatchingEngine matchingEngine;
+
+    @Inject
+    TradeService tradeService;
+
     public Order createOrder(UUID userId, OrderSide side, BigDecimal price, BigDecimal quantity) {
         validateOrderParams(price, quantity);
 
@@ -41,6 +50,15 @@ public class OrderService {
         order.remaining = quantity;
         order.status = OrderStatus.NEW;
         orderRepository.persist(order);
+        orderRepository.flush();
+
+        // Submete ao matching engine
+        MatchResult matchResult = matchingEngine.submitOrder(order);
+
+        // Persiste trades e faz settlement
+        for (TradeResult trade : matchResult.trades()) {
+            tradeService.executeTrade(trade);
+        }
 
         return order;
     }
@@ -59,6 +77,7 @@ public class OrderService {
             throw new IllegalStateException("Ordem com status " + order.status + " nao pode ser cancelada");
         }
 
+        matchingEngine.removeOrder(order);
         walletService.releaseBalance(userId, order);
 
         order.status = OrderStatus.CANCELLED;

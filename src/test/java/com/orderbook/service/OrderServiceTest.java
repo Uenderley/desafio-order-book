@@ -1,5 +1,6 @@
 package com.orderbook.service;
 
+import com.orderbook.engine.MatchingEngine;
 import com.orderbook.entity.*;
 import com.orderbook.exception.InsufficientBalanceException;
 import com.orderbook.exception.OrderNotFoundException;
@@ -9,6 +10,7 @@ import com.orderbook.repository.WalletRepository;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -31,6 +33,14 @@ class OrderServiceTest {
 
     @Inject
     OrderRepository orderRepository;
+
+    @Inject
+    MatchingEngine matchingEngine;
+
+    @BeforeEach
+    void setUp() {
+        matchingEngine.clear();
+    }
 
     // === createOrder ===
 
