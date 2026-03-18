@@ -1,0 +1,72 @@
+@startuml fluxo-matching
+!theme plain
+title Fluxo — Matching Engine (Price-Time Priority)
+
+participant "MatchingEngine" as me
+participant "TradeService" as ts
+participant "WalletService" as ws
+database PostgreSQL as db
+
+me -> me : lock.lock()
+
+== Identificar lado oposto ==
+
+alt Ordem de COMPRA (incoming)
+  me -> me : oppositeBook = asks\n(vendas ordenadas por price ASC)
+  me -> me : bestOpposite = asks.firstEntry()\n(menor preco de venda)
+  me -> me : matchCondition: ask.price <= buy.price
+else Ordem de VENDA (incoming)
+  me -> me : oppositeBook = bids\n(compras ordenadas por price DESC)
+  me -> me : bestOpposite = bids.firstEntry()\n(maior preco de compra)
+  me -> me : matchCondition: bid.price >= sell.price
+end
+
+== Loop de Matching ==
+
+loop enquanto matchCondition == true AND incoming.remaining > 0
+
+  me -> me : matchQty = min(\n  incoming.remaining,\n  resting.remaining)
+
+  me -> me : matchPrice = resting.price\n(preco do MAKER)
+
+  me -> me : incoming.remaining -= matchQty
+  me -> me : resting.remaining -= matchQty
+
+  == Settlement Atomico (@Transactional) ==
+
+  me -> ts : createTrade(buyOrder, sellOrder,\n  matchPrice, matchQty)
+
+  ts -> db : INSERT INTO trades\n(buy_order_id, sell_order_id, price, qty)
+
+  ts -> ws : settleTrade(buyer, seller, price, qty)
+
+  ws -> db : UPDATE buyer wallet:\n  reserved_brl -= buyOrder.price * qty\n  balance_brl += (buyOrder.price - matchPrice) * qty\n  balance_vibranium += qty
+
+  ws -> db : UPDATE seller wallet:\n  reserved_vibranium -= qty\n  balance_brl += matchPrice * qty
+
+  ts -> db : INSERT transaction_history (buyer)
+  ts -> db : INSERT transaction_history (seller)
+
+  == Atualizar Resting Order ==
+
+  alt resting.remaining == 0
+    me -> me : Remove resting do book\n(oppositeBook.remove)
+    me -> db : UPDATE order SET\n  status='FILLED', remaining=0
+  else resting.remaining > 0
+    me -> db : UPDATE order SET\n  status='PARTIALLY_FILLED',\n  remaining=resting.remaining
+  end
+
+  me -> me : bestOpposite = oppositeBook.firstEntry()\n(proximo melhor preco)
+end
+
+== Finalizar Incoming Order ==
+
+alt incoming.remaining == 0
+  me -> db : UPDATE order SET\n  status='FILLED', remaining=0
+else incoming.remaining > 0
+  me -> me : Adiciona incoming ao book\n(lado correspondente)
+  me -> db : UPDATE order SET\n  status='NEW' ou 'PARTIALLY_FILLED'
+end
+
+me -> me : lock.unlock()
+@enduml

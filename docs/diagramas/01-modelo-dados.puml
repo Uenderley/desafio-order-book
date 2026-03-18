@@ -1,0 +1,89 @@
+@startuml modelo-dados
+!theme plain
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+title Modelo de Dados — Order Book de Vibranium
+
+entity "users" as user {
+  * id : UUID <<PK>>
+  --
+  name : VARCHAR(100)
+  email : VARCHAR(150) <<UNIQUE>>
+  created_at : TIMESTAMP
+}
+
+entity "wallets" as wallet {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK, UNIQUE>>
+  balance_brl : DECIMAL(18,2)
+  balance_vibranium : DECIMAL(18,8)
+  reserved_brl : DECIMAL(18,2)
+  reserved_vibranium : DECIMAL(18,8)
+  version : BIGINT <<Optimistic Lock>>
+}
+
+entity "orders" as order {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK>>
+  side : ENUM('BUY','SELL')
+  price : DECIMAL(18,2)
+  quantity : DECIMAL(18,8)
+  remaining : DECIMAL(18,8)
+  status : ENUM('NEW','PARTIALLY_FILLED','FILLED','CANCELLED')
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+  ..
+  <<INDEX>> (user_id)
+  <<INDEX>> (status)
+  <<INDEX>> (side, status, price, created_at)
+}
+
+entity "trades" as trade {
+  * id : UUID <<PK>>
+  --
+  * buy_order_id : UUID <<FK>>
+  * sell_order_id : UUID <<FK>>
+  price : DECIMAL(18,2)
+  quantity : DECIMAL(18,8)
+  executed_at : TIMESTAMP
+  ..
+  <<UNIQUE>> (buy_order_id, sell_order_id)
+  <<INDEX>> (buy_order_id)
+  <<INDEX>> (sell_order_id)
+}
+
+entity "transaction_history" as txn {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK>>
+  * trade_id : UUID <<FK>>
+  type : ENUM('BUY','SELL')
+  price : DECIMAL(18,2)
+  quantity : DECIMAL(18,8)
+  total_value : DECIMAL(18,2)
+  created_at : TIMESTAMP
+  ..
+  <<INDEX>> (user_id)
+  <<INDEX>> (trade_id)
+}
+
+user ||--|| wallet : "1:1 possui"
+user ||--o{ order : "1:N cria"
+order }o--o{ trade : "buy_order"
+order }o--o{ trade : "sell_order"
+user ||--o{ txn : "1:N historico"
+trade ||--o{ txn : "1:2 gera"
+
+note bottom of wallet
+  Optimistic Locking via @Version
+  Evita race conditions em
+  operacoes concorrentes de saldo
+end note
+
+note bottom of order
+  remaining rastreia partial fills
+  status atualizado a cada trade
+end note
+@enduml

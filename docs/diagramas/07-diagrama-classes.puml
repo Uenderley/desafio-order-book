@@ -1,0 +1,192 @@
+@startuml diagrama-classes
+!theme plain
+skinparam classAttributeIconSize 0
+title Diagrama de Classes — Dominio do Order Book
+
+' === ENUMS ===
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  NEW
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+}
+
+' === ENTITIES ===
+
+class User <<Entity>> {
+  - id : UUID
+  - name : String
+  - email : String
+  - createdAt : Instant
+}
+
+class Wallet <<Entity>> {
+  - id : UUID
+  - userId : UUID
+  - balanceBrl : BigDecimal
+  - balanceVibranium : BigDecimal
+  - reservedBrl : BigDecimal
+  - reservedVibranium : BigDecimal
+  - version : Long <<@Version>>
+}
+
+class Order <<Entity>> {
+  - id : UUID
+  - userId : UUID
+  - side : OrderSide
+  - price : BigDecimal
+  - quantity : BigDecimal
+  - remaining : BigDecimal
+  - status : OrderStatus
+  - createdAt : Instant
+  - updatedAt : Instant
+}
+
+class Trade <<Entity>> {
+  - id : UUID
+  - buyOrderId : UUID
+  - sellOrderId : UUID
+  - price : BigDecimal
+  - quantity : BigDecimal
+  - executedAt : Instant
+}
+
+class TransactionHistory <<Entity>> {
+  - id : UUID
+  - userId : UUID
+  - tradeId : UUID
+  - type : OrderSide
+  - price : BigDecimal
+  - quantity : BigDecimal
+  - totalValue : BigDecimal
+  - createdAt : Instant
+}
+
+' === ENGINE ===
+
+class PriceTimeKey <<record>> {
+  - price : BigDecimal
+  - timestamp : Instant
+  - orderId : UUID
+  + {static} askComparator() : Comparator
+  + {static} bidComparator() : Comparator
+}
+
+class MatchingEngine <<@ApplicationScoped>> {
+  - bids : ConcurrentSkipListMap<PriceTimeKey, Order>
+  - asks : ConcurrentSkipListMap<PriceTimeKey, Order>
+  - lock : ReentrantLock
+  - ready : boolean
+  - accepting : boolean
+  + submitOrder(order) : MatchResult
+  + insertWithoutMatching(order) : void
+  + removeOrder(orderId) : boolean
+  + runRecoveryMatching() : void
+  + getOrderBook() : OrderBookSnapshot
+  + stopAcceptingOrders() : void
+  + drainInFlightOperations(timeout) : void
+  + isReady() : boolean
+  + isResponding() : boolean
+  + getOrderCount() : int
+}
+
+class MatchResult <<record>> {
+  - trades : List<TradeResult>
+  - orderStatus : OrderStatus
+}
+
+class TradeResult <<record>> {
+  - buyOrderId : UUID
+  - sellOrderId : UUID
+  - price : BigDecimal
+  - quantity : BigDecimal
+}
+
+' === SERVICES ===
+
+class OrderService <<@ApplicationScoped>> {
+  + createOrder(userId, request) : OrderResponse
+  + cancelOrder(userId, orderId) : OrderResponse
+  + getOrder(orderId) : OrderResponse
+  + getOrdersByUser(userId, page, size) : PageResponse
+}
+
+class WalletService <<@ApplicationScoped>> {
+  + reserveBalance(userId, side, price, qty) : void
+  + releaseBalance(userId, order) : void
+  + settleTrade(buyOrder, sellOrder, price, qty) : void
+  + getWallet(userId) : WalletResponse
+}
+
+class TradeService <<@ApplicationScoped>> {
+  + executeTrades(matchResults) : void
+  + settleTrade(buyOrder, sellOrder, price, qty) : Trade
+  + listTrades(page, size) : PageResponse
+}
+
+' === REST ===
+
+class OrderResource <<@Path("/api/orders")>> {
+  + createOrder(request) : Response
+  + getOrder(id) : Response
+  + cancelOrder(id) : Response
+}
+
+class UserResource <<@Path("/api/users")>> {
+  + createUser(request) : Response
+  + getWallet(userId) : Response
+  + getTransactions(userId) : Response
+}
+
+class OrderBookResource <<@Path("/api/orderbook")>> {
+  + getOrderBook() : Response
+}
+
+class TradeResource <<@Path("/api/trades")>> {
+  + listTrades(page, size) : Response
+}
+
+' === INFRASTRUCTURE ===
+
+class OrderBookRecovery <<@ApplicationScoped>> {
+  + onStartup(event) : void
+}
+
+class OrderBookShutdown <<@ApplicationScoped>> {
+  + onShutdown(event) : void
+}
+
+' === RELATIONSHIPS ===
+
+User "1" --> "1" Wallet
+User "1" --> "*" Order
+Order "*" --> "*" Trade
+Trade "1" --> "2" TransactionHistory
+
+Order --> OrderSide
+Order --> OrderStatus
+
+OrderResource --> OrderService
+UserResource --> WalletService
+TradeResource --> TradeService
+OrderBookResource --> MatchingEngine
+
+OrderService --> WalletService
+OrderService --> MatchingEngine
+MatchingEngine --> TradeService
+TradeService --> WalletService
+
+MatchingEngine *-- PriceTimeKey
+MatchingEngine --> MatchResult
+MatchResult *-- TradeResult
+
+OrderBookRecovery --> MatchingEngine
+OrderBookRecovery --> OrderService
+OrderBookShutdown --> MatchingEngine
+@enduml

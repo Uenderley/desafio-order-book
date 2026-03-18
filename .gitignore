@@ -1,0 +1,30 @@
+# Build
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+*.env.local
+
+# Quarkus
+.quarkus/
+
+# Claude Code - incluir commands no git, excluir configs locais
+.claude/settings.local.json
+.claude/plans/
+.claude/memory/
+# .claude/commands/ e commitado (NAO ignorar)

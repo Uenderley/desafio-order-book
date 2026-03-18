@@ -1,0 +1,69 @@
+@startuml fluxo-cancelamento
+!theme plain
+title Fluxo — Cancelamento de Ordem
+
+actor Cliente
+participant "OrderResource\n(JAX-RS)" as api
+participant "OrderService" as os
+participant "MatchingEngine" as me
+participant "WalletService" as ws
+database PostgreSQL as db
+
+Cliente -> api : DELETE /api/orders/{id}\n(header: X-User-Id)
+api -> os : cancelOrder(userId, orderId)
+
+== Validacao ==
+
+os -> db : SELECT order WHERE id = ?
+
+os -> os : Valida: order.userId == userId
+os -> os : Valida: status IN (NEW, PARTIALLY_FILLED)
+
+alt Ordem nao encontrada
+  os --> api : 404 Not Found
+  api --> Cliente : {"error": "Ordem nao encontrada"}
+end
+
+alt Status invalido (FILLED ou CANCELLED)
+  os --> api : 400 Bad Request
+  api --> Cliente : {"error": "Ordem nao pode ser cancelada"}
+end
+
+alt Ordem nao pertence ao usuario
+  os --> api : 403 Forbidden
+  api --> Cliente : {"error": "Sem permissao"}
+end
+
+== Remocao do Book (sob lock) ==
+
+os -> me : removeOrder(orderId)
+me -> me : lock.lock()
+me -> me : Remove ordem de bids ou asks\nusando PriceTimeKey
+me -> me : lock.unlock()
+me --> os : Removida com sucesso
+
+== Liberacao de Saldo ==
+
+os -> ws : releaseBalance(userId, order)
+
+alt order.side == BUY
+  ws -> ws : amount = order.price * order.remaining
+  ws -> db : UPDATE wallet SET\n  reserved_brl -= amount,\n  balance_brl += amount
+else order.side == SELL
+  ws -> ws : amount = order.remaining
+  ws -> db : UPDATE wallet SET\n  reserved_vibranium -= amount,\n  balance_vibranium += amount
+end
+
+== Atualizacao da Ordem ==
+
+os -> db : UPDATE order SET\n  status = 'CANCELLED',\n  updated_at = NOW()
+
+os --> api : 200 OK
+api --> Cliente : {"orderId": "...",\n "status": "CANCELLED"}
+
+note over ws
+  remaining ja reflete partial fills
+  anteriores, entao o saldo liberado
+  e sempre o valor correto
+end note
+@enduml

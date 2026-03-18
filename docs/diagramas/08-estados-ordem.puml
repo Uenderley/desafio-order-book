@@ -1,0 +1,41 @@
+@startuml estados-ordem
+!theme plain
+title Diagrama de Estados — Ciclo de Vida de uma Ordem
+
+[*] --> NEW : Ordem criada\n(saldo reservado)
+
+NEW --> PARTIALLY_FILLED : Match parcial\n(remaining > 0)
+NEW --> FILLED : Match completo\n(remaining == 0)
+NEW --> CANCELLED : Cancelamento\n(saldo liberado)
+
+PARTIALLY_FILLED --> PARTIALLY_FILLED : Novo match parcial\n(remaining > 0)
+PARTIALLY_FILLED --> FILLED : Match completa\n  remaining restante\n(remaining == 0)
+PARTIALLY_FILLED --> CANCELLED : Cancelamento\n(remaining liberado)
+
+FILLED --> [*]
+CANCELLED --> [*]
+
+note right of NEW
+  Saldo reservado:
+  BUY: price * quantity em BRL
+  SELL: quantity em Vibranium
+end note
+
+note right of PARTIALLY_FILLED
+  remaining rastreia quanto
+  ainda falta preencher.
+  Cada trade reduz remaining.
+end note
+
+note right of FILLED
+  Ordem totalmente executada.
+  Saldo ja transferido via trades.
+  Estado terminal — imutavel.
+end note
+
+note right of CANCELLED
+  Saldo do remaining
+  devolvido ao usuario.
+  Estado terminal — imutavel.
+end note
+@enduml

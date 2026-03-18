@@ -1,0 +1,71 @@
+@startuml fluxo-criar-ordem
+!theme plain
+title Fluxo — Criar Ordem de Compra/Venda
+
+actor Cliente
+participant "OrderResource\n(JAX-RS)" as api
+participant "OrderService" as os
+participant "WalletService" as ws
+participant "MatchingEngine" as me
+participant "TradeService" as ts
+database PostgreSQL as db
+
+Cliente -> api : POST /api/orders\n{userId, side, price, quantity}
+
+api -> api : Valida request\n(price>0, quantity>0, side valido)
+
+api -> os : createOrder(userId, request)
+
+== Reserva de Saldo ==
+
+os -> ws : reserveBalance(userId, side, price, qty)
+ws -> db : SELECT wallet WHERE user_id = ?\n(with version for optimistic lock)
+
+alt side == BUY
+  ws -> ws : Valida: balanceBrl >= price * qty
+  ws -> db : UPDATE wallet SET\n  balance_brl -= price * qty,\n  reserved_brl += price * qty\nWHERE version = ?
+else side == SELL
+  ws -> ws : Valida: balanceVibranium >= qty
+  ws -> db : UPDATE wallet SET\n  balance_vibranium -= qty,\n  reserved_vibranium += qty\nWHERE version = ?
+end
+
+alt Saldo insuficiente
+  ws --> os : throw InsufficientBalanceException
+  os --> api : 400 Bad Request
+  api --> Cliente : {"error": "Saldo insuficiente"}
+end
+
+alt OptimisticLockException
+  ws -> ws : Retry (ate 3 tentativas)
+end
+
+ws --> os : Saldo reservado OK
+
+== Persistencia da Ordem ==
+
+os -> db : INSERT INTO orders\n(id, user_id, side, price, quantity,\n remaining=quantity, status='NEW')
+os --> os : Ordem persistida
+
+== Matching ==
+
+os -> me : submitOrder(order)
+me -> me : lock.lock()
+me -> me : tryMatch(order)\n(ver diagrama 04)
+
+alt Houve matches
+  me -> ts : executeTrades(matchResults)
+  ts -> db : Persiste trades + atualiza wallets\n(ver diagrama 04)
+end
+
+alt Ordem com remaining > 0
+  me -> me : Insere no book\n(bids ou asks)
+end
+
+me -> me : lock.unlock()
+me --> os : MatchResult
+
+== Resposta ==
+
+os --> api : OrderResponse
+api --> Cliente : 201 Created\n{"orderId": "...",\n "status": "NEW|PARTIALLY_FILLED|FILLED"}
+@enduml

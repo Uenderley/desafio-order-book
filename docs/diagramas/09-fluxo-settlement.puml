@@ -1,0 +1,62 @@
+@startuml fluxo-settlement
+!theme plain
+title Fluxo — Settlement de Trade (Transferencia de Saldos)
+
+participant "TradeService" as ts
+participant "WalletService" as ws
+database PostgreSQL as db
+
+note over ts
+  Executado dentro de @Transactional
+  Tudo-ou-nada: se qualquer etapa
+  falhar, ROLLBACK automatico
+end note
+
+== 1. Criacao do Trade ==
+
+ts -> db : INSERT INTO trades (\n  id, buy_order_id, sell_order_id,\n  price, quantity, executed_at\n)
+
+== 2. Atualizacao das Ordens ==
+
+ts -> db : UPDATE orders SET\n  remaining -= matchQty,\n  status = FILLED | PARTIALLY_FILLED\nWHERE id = buyOrderId
+
+ts -> db : UPDATE orders SET\n  remaining -= matchQty,\n  status = FILLED | PARTIALLY_FILLED\nWHERE id = sellOrderId
+
+== 3. Settlement da Wallet do Comprador ==
+
+ts -> ws : settleBuyer(buyOrder, tradePrice, matchQty)
+
+ws -> ws : reservedAmount = buyOrder.price * matchQty\nexcessBrl = (buyOrder.price - tradePrice) * matchQty
+
+ws -> db : UPDATE wallets SET\n  reserved_brl -= reservedAmount,\n  balance_brl += excessBrl,\n  balance_vibranium += matchQty\nWHERE user_id = buyer.id\n  AND version = ?
+
+note right of ws
+  **Exemplo:**
+  Ordem BUY limitada a R$155
+  Trade executa a R$150 (preco maker)
+  reservedAmount = 155 * qty
+  excessBrl = (155-150) * qty = 5 * qty
+  Excesso devolvido ao balance_brl
+end note
+
+== 4. Settlement da Wallet do Vendedor ==
+
+ts -> ws : settleSeller(sellOrder, tradePrice, matchQty)
+
+ws -> db : UPDATE wallets SET\n  reserved_vibranium -= matchQty,\n  balance_brl += tradePrice * matchQty\nWHERE user_id = seller.id\n  AND version = ?
+
+== 5. Registro de Historico ==
+
+ts -> db : INSERT INTO transaction_history (\n  user_id = buyer, trade_id, type='BUY',\n  price, quantity, total_value\n)
+
+ts -> db : INSERT INTO transaction_history (\n  user_id = seller, trade_id, type='SELL',\n  price, quantity, total_value\n)
+
+== Resultado ==
+
+note over ts, db
+  COMMIT: trade + ordens + wallets + historico
+  atomicamente persistidos.
+  Se falhar: ROLLBACK completo,
+  engine desfaz alteracoes in-memory.
+end note
+@enduml

@@ -1,0 +1,66 @@
+@startuml graceful-shutdown
+!theme plain
+title Fluxo — Graceful Shutdown
+
+participant "Orquestrador\n(K8s / Docker)" as orch
+participant "Quarkus\nContainer" as q
+participant "OrderBookShutdown\n(@Observes ShutdownEvent)" as shutdown
+participant "MatchingEngine" as engine
+participant "REST API" as api
+database PostgreSQL as db
+
+orch -> q : SIGTERM
+
+q -> shutdown : @Observes ShutdownEvent
+
+== Fase 1: Parar de aceitar novas ordens ==
+
+shutdown -> engine : stopAcceptingOrders()
+engine -> engine : accepting = false
+
+note over api
+  Novas requisicoes POST /orders
+  recebem 503 Service Unavailable
+end note
+
+== Fase 2: Drenar operacoes in-flight ==
+
+shutdown -> engine : drainInFlightOperations(\n  timeout = 10s)
+
+engine -> engine : Aguarda lock ficar livre\n(matching em andamento termina)
+
+loop operacoes in-flight
+  engine -> db : Finaliza persistencia\nde trades pendentes
+end
+
+alt Timeout atingido
+  engine -> engine : Log WARN: "Timeout ao drenar\n  operacoes in-flight"
+  note over engine
+    Operacoes que nao completaram
+    serao tratadas no recovery
+    do proximo startup
+  end note
+end
+
+== Fase 3: Finalizacao ==
+
+shutdown -> shutdown : Log: "Shutdown completo"
+
+note over engine
+  O book NAO precisa ser serializado.
+  Sera reconstruido a partir do banco
+  no proximo startup (recovery).
+end note
+
+q -> orch : Processo encerrado
+
+orch -> orch : Novo deploy / restart
+
+note over orch
+  No proximo startup:
+  1. Recovery carrega ordens do banco
+  2. Re-matching casa pendentes
+  3. ReadinessCheck sinaliza UP
+  4. Trafego direcionado ao pod
+end note
+@enduml
