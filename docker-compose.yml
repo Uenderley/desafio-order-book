@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: orderbook-postgres
+    environment:
+      POSTGRES_DB: orderbook
+      POSTGRES_USER: orderbook
+      POSTGRES_PASSWORD: orderbook
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
