@@ -1,0 +1,75 @@
+@startuml recovery-startup
+!theme plain
+title Fluxo — Recovery do Order Book no Startup
+
+participant "Quarkus\nContainer" as q
+participant "OrderBookRecovery\n(@Observes StartupEvent)" as recovery
+participant "OrderRepository" as repo
+participant "MatchingEngine" as engine
+database "PostgreSQL" as db
+
+== Inicializacao ==
+
+q -> recovery : @Observes StartupEvent
+
+recovery -> recovery : Log: "Iniciando reconstrucao\n do Order Book..."
+
+== Carga de Ordens Abertas ==
+
+recovery -> repo : find(status IN\n  ('NEW', 'PARTIALLY_FILLED'))\n  ORDER BY created_at ASC
+
+repo -> db : SELECT * FROM orders\nWHERE status IN\n  ('NEW', 'PARTIALLY_FILLED')\nORDER BY created_at ASC
+
+db --> repo : List<Order>
+repo --> recovery : ordens abertas
+
+== Reconstrucao do Book ==
+
+loop para cada ordem (respeitando created_at)
+  recovery -> engine : insertWithoutMatching(order)
+
+  alt order.side == BUY
+    engine -> engine : bids.put(\n  PriceTimeKey(price, createdAt, id),\n  order)
+  else order.side == SELL
+    engine -> engine : asks.put(\n  PriceTimeKey(price, createdAt, id),\n  order)
+  end
+end
+
+recovery -> recovery : Log: "Order Book reconstruido:\n  N ordens carregadas\n  (X bids + Y asks)"
+
+== Re-Matching Pos-Recovery ==
+
+note over engine
+  Cobre o cenario:
+  Ordem inserida no banco mas processo
+  caiu ANTES do matching executar.
+  Sem re-matching, ordens compativeis
+  ficariam paradas no book.
+end note
+
+recovery -> engine : runRecoveryMatching()
+
+engine -> engine : lock.lock()
+
+loop para cada bid (maior preco primeiro)
+  engine -> engine : Verifica match com\n  melhor ask disponivel
+  alt match encontrado
+    engine -> engine : Executa matching\n  (mesmo algoritmo do fluxo 04)
+  end
+end
+
+engine -> engine : lock.unlock()
+
+recovery -> recovery : Log: "Re-matching concluido:\n  M trades executados"
+
+== Sinalizacao de Readiness ==
+
+recovery -> engine : setReady(true)
+
+note over engine
+  ReadinessCheck agora retorna UP.
+  Aplicacao pronta para receber trafego.
+end note
+
+q -> q : Aplicacao pronta
+@enduml

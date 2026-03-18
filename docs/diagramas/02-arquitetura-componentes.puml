@@ -1,0 +1,87 @@
+@startuml arquitetura-componentes
+!theme plain
+skinparam componentStyle rectangle
+title Arquitetura de Componentes — Order Book de Vibranium
+
+actor "Cliente\n(HTTP)" as client
+
+package "Quarkus Application" {
+
+  package "REST Layer (JAX-RS)" {
+    [UserResource] as userRes
+    [OrderResource] as orderRes
+    [OrderBookResource] as bookRes
+    [TradeResource] as tradeRes
+  }
+
+  package "Service Layer" {
+    [OrderService] as orderSvc
+    [WalletService] as walletSvc
+    [TradeService] as tradeSvc
+  }
+
+  package "Engine" {
+    [MatchingEngine\n(in-memory)] as engine
+    note right of engine
+      ConcurrentSkipListMap (bids + asks)
+      ReentrantLock (serializa matching)
+      Algoritmo Price-Time Priority
+    end note
+  }
+
+  package "Repository Layer (Panache)" {
+    [UserRepository] as userRepo
+    [WalletRepository] as walletRepo
+    [OrderRepository] as orderRepo
+    [TradeRepository] as tradeRepo
+    [TransactionHistoryRepository] as txnRepo
+  }
+
+  package "Infrastructure" {
+    [OrderBookRecovery\n(@Observes StartupEvent)] as recovery
+    [OrderBookShutdown\n(@Observes ShutdownEvent)] as shutdown
+    [ReadinessCheck] as readiness
+    [LivenessCheck] as liveness
+  }
+}
+
+database "PostgreSQL" as db
+
+' REST -> Services
+client --> userRes : HTTP/JSON
+client --> orderRes : HTTP/JSON
+client --> bookRes : HTTP/JSON
+client --> tradeRes : HTTP/JSON
+
+orderRes --> orderSvc
+userRes --> walletSvc
+userRes --> userRepo
+tradeRes --> tradeSvc
+bookRes --> engine
+
+' Service interactions
+orderSvc --> walletSvc : reserva/libera saldo
+orderSvc --> engine : submete ordem
+engine --> tradeSvc : registra trades
+tradeSvc --> walletSvc : settlement
+
+' Service -> Repository
+orderSvc --> orderRepo
+walletSvc --> walletRepo
+tradeSvc --> tradeRepo
+tradeSvc --> txnRepo
+
+' Repository -> DB
+userRepo --> db
+walletRepo --> db
+orderRepo --> db
+tradeRepo --> db
+txnRepo --> db
+
+' Infrastructure
+recovery --> engine : reconstroi book
+recovery --> orderRepo : carrega ordens abertas
+shutdown --> engine : drena operacoes
+readiness --> engine : book pronto?
+liveness --> engine : engine respondendo?
+@enduml
