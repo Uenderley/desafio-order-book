@@ -1,5 +1,6 @@
 package com.orderbook.service;
 
+import com.orderbook.dto.UserWithWalletResponse;
 import com.orderbook.entity.User;
 import com.orderbook.entity.Wallet;
 import com.orderbook.exception.UserNotFoundException;
@@ -10,6 +11,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @ApplicationScoped
@@ -41,6 +43,33 @@ public class UserService {
         walletRepository.persist(wallet);
 
         return user;
+    }
+
+    public List<UserWithWalletResponse> listUsersWithWallet(int page, int size) {
+        List<User> users = userRepository.find("ORDER BY createdAt DESC").page(page, size).list();
+        return users.stream().map(user -> {
+            Wallet wallet = walletRepository.findByUserId(user.id).orElseThrow();
+            return UserWithWalletResponse.from(user, wallet);
+        }).toList();
+    }
+
+    public long countUsers() {
+        return userRepository.count();
+    }
+
+    @Transactional
+    public Wallet deposit(UUID userId, BigDecimal amountBrl, BigDecimal amountVibranium) {
+        Wallet wallet = walletRepository.findByUserId(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+
+        if (amountBrl != null && amountBrl.signum() > 0) {
+            wallet.balanceBrl = wallet.balanceBrl.add(amountBrl);
+        }
+        if (amountVibranium != null && amountVibranium.signum() > 0) {
+            wallet.balanceVibranium = wallet.balanceVibranium.add(amountVibranium);
+        }
+
+        return wallet;
     }
 
     public Wallet getWallet(UUID userId) {

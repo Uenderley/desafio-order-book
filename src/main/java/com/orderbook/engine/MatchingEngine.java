@@ -68,11 +68,11 @@ public class MatchingEngine {
         lock.lock();
         try {
             List<OrderBookSnapshot.Entry> bidEntries = bids.values().stream()
-                    .map(o -> new OrderBookSnapshot.Entry(o.id, o.price, o.remaining))
+                    .map(o -> new OrderBookSnapshot.Entry(o.id, o.user != null ? o.user.name : null, o.price, o.remaining, o.status.name(), o.createdAt))
                     .toList();
 
             List<OrderBookSnapshot.Entry> askEntries = asks.values().stream()
-                    .map(o -> new OrderBookSnapshot.Entry(o.id, o.price, o.remaining))
+                    .map(o -> new OrderBookSnapshot.Entry(o.id, o.user != null ? o.user.name : null, o.price, o.remaining, o.status.name(), o.createdAt))
                     .toList();
 
             return new OrderBookSnapshot(bidEntries, askEntries);
